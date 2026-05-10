@@ -6,16 +6,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let isBalanceHidden = false;
     let skin = 'green';
     let language = 'uk';
+    let currentFilter = 'all';
+    let exchangeRates = null;
 
     const skins = ['green', 'blue', 'red', 'purple', 'gold', 'silver', 'cyan', 'cosmic'];
 
-    const translations = {
-        uk: { appName: 'monobank', totalBalance: 'Загальний баланс', quickActions: 'Швидкі дії', withdraw: 'Зняти готівку', topupCard: 'Поповнити карту', transfer: 'Переказати кошти', topupPhone: 'Поповнити телефон', payUtilit: 'Оплатити комуналку', viewBalance: 'Подивитись баланс', history: 'Історія', changeLimit: 'Змінити ліміт', printBalance: 'Роздрукувати баланс', payCreator: 'Оплата Creator', cashCollection: 'Режим інкасації', services: 'Послуги', settings: 'Налаштування', changePin: 'Змінити ПІН', blockCard: 'Заблокувати карту', changeSkin: 'Змінити скін', changeLang: 'Змінити мову', toggleBalance: 'Показати/ховати баланс', addCard: 'Додати картку', logout: 'Вийти', home: 'Головна', historyTab: 'Історія', servicesTab: 'Послуги', settingsTab: 'Налаштування', historyTitle: 'Історія' },
-        en: { appName: 'monobank', totalBalance: 'Total balance', quickActions: 'Quick actions', withdraw: 'Withdraw cash', topupCard: 'Top up card', transfer: 'Transfer', topupPhone: 'Top up phone', payUtilit: 'Pay utilities', viewBalance: 'View balance', history: 'History', changeLimit: 'Change limit', printBalance: 'Print balance', payCreator: 'Pay Creator', cashCollection: 'Collection mode', services: 'Services', settings: 'Settings', changePin: 'Change PIN', blockCard: 'Block card', changeSkin: 'Change skin', changeLang: 'Change language', toggleBalance: 'Show/hide balance', addCard: 'Add card', logout: 'Logout', home: 'Home', historyTab: 'History', servicesTab: 'Services', settingsTab: 'Settings', historyTitle: 'History' },
-        pl: { appName: 'monobank', totalBalance: 'Saldo ogólne', quickActions: 'Szybkie akcje', withdraw: 'Wypłać gotówkę', topupCard: 'Doładuj kartę', transfer: 'Przelew', topupPhone: 'Doładuj telefon', payUtilit: 'Płać rachunki', viewBalance: 'Sprawdź saldo', history: 'Historia', changeLimit: 'Zmień limit', printBalance: 'Drukuj saldo', payCreator: 'Płać za naukę', cashCollection: 'Tryb inkasa', services: 'Usługi', settings: 'Ustawienia', changePin: 'Zmień PIN', blockCard: 'Zablokuj kartę', changeSkin: 'Zmień wygląd', changeLang: 'Zmień język', toggleBalance: 'Pokaż/ukryj saldo', addCard: 'Dodaj kartę', logout: 'Wyloguj', home: 'Główna', historyTab: 'Historia', servicesTab: 'Usługi', settingsTab: 'Ustawienia', historyTitle: 'Historia' }
-    };
-
-    // Елементи
+    // ========== ЕЛЕМЕНТИ DOM ==========
     const authScreen = document.getElementById('auth-screen');
     const appMain = document.getElementById('app-main');
     const loginTab = document.getElementById('login-tab');
@@ -32,15 +28,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const modalFooter = document.getElementById('modalFooter');
     const modalClose = document.querySelector('.modal-close');
     const cardSelector = document.getElementById('cardSelector');
+    const historyFilterType = document.getElementById('historyFilterType');
+    const profileNameSpan = document.getElementById('profileName');
+    const profileEmailSpan = document.getElementById('profileEmail');
 
-    // ========== ВАЛІДАЦІЯ EMAIL ==========
+    // ========== ДОПОМІЖНІ ФУНКЦІЇ ==========
     function isValidEmail(email) {
-        // Проста, але надійна перевірка формату email
-        const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        return re.test(email);
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
     }
 
-    // ========== РОБОТА З LOCALSTORAGE ==========
+    function isValidPhone(phone) {
+        return /^[\+]?[(]?[0-9]{3}[)]?[-\s\.]?[0-9]{3}[-\s\.]?[0-9]{4,6}$/.test(phone);
+    }
+
+    // Збереження / завантаження даних
     function saveUsers(users) {
         localStorage.setItem('monoUsers', JSON.stringify(users));
     }
@@ -49,16 +50,11 @@ document.addEventListener('DOMContentLoaded', () => {
         return JSON.parse(localStorage.getItem('monoUsers')) || [];
     }
 
-    // Збереження поточного користувача (тільки email)
     function saveSession(email) {
-        if (email) {
-            localStorage.setItem('monoSession', email);
-        } else {
-            localStorage.removeItem('monoSession');
-        }
+        if (email) localStorage.setItem('monoSession', email);
+        else localStorage.removeItem('monoSession');
     }
 
-    // Збереження налаштувань інтерфейсу
     function saveUISettings() {
         localStorage.setItem('monoUISettings', JSON.stringify({
             activeCardIndex,
@@ -68,7 +64,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }));
     }
 
-    // Завантаження налаштувань інтерфейсу
     function loadUISettings() {
         const saved = localStorage.getItem('monoUISettings');
         if (saved) {
@@ -80,60 +75,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 language = settings.language || 'uk';
             } catch (e) {}
         }
-        // Застосувати до інтерфейсу
         document.getElementById('app-main').classList.toggle('balance-hidden', isBalanceHidden);
-        document.getElementById('eyeIcon').className = isBalanceHidden ? 'fas fa-eye-slash' : 'fas fa-eye';
+        const eyeIcon = document.getElementById('eyeIcon');
+        if (eyeIcon) eyeIcon.className = isBalanceHidden ? 'fas fa-eye-slash' : 'fas fa-eye';
         applySkin();
-        applyLanguage();
     }
 
-    // Оновлення даних користувача в localStorage
     function updateUserInStorage() {
         if (!currentUser) return;
+        if (currentUser.email === 'demo@mail.com') {
+            localStorage.setItem('monoDemoUser', JSON.stringify(currentUser));
+            return;
+        }
         const users = getUsers();
         const index = users.findIndex(u => u.email === currentUser.email);
         if (index !== -1) {
             users[index] = currentUser;
-        } else {
-            // Якщо це demo-користувач, не зберігаємо його в загальному списку (але можемо зберігати окремо)
-            // Для demo ми просто нічого не робимо, але щоб не загубити зміни, збережемо його в окремому ключі?
-            // Або можна дозволити зберігати demo в users, але тоді він з'явиться при реєстрації. Краще окремо.
-            // Простий вихід: якщо email demo@mail.com, зберігаємо його в monoDemoUser
-            if (currentUser.email === 'demo@mail.com') {
-                localStorage.setItem('monoDemoUser', JSON.stringify(currentUser));
-            }
-            return;
+            saveUsers(users);
         }
-        saveUsers(users);
     }
 
-    // Завантаження сесії
     function loadSession() {
         const sessionEmail = localStorage.getItem('monoSession');
         if (!sessionEmail) return false;
 
         if (sessionEmail === 'demo@mail.com') {
-            // Спробувати завантажити збереженого demo-користувача
             const savedDemo = localStorage.getItem('monoDemoUser');
             if (savedDemo) {
                 currentUser = JSON.parse(savedDemo);
             } else {
-                // Створити нового demo
-                currentUser = {
-                    name: 'Іван Іваненко',
-                    email: 'demo@mail.com',
-                    cards: [{
-                        number: '5375 41•• •••• 1234',
-                        holder: 'ІВАН ІВАНЕНКО',
-                        expiry: '09/25',
-                        balance: 15240.75,
-                        transactions: [
-                            { icon: 'fa-briefcase', name: 'Зарплата', date: '14 бер 18:02', amount: 22500, type: 'positive' },
-                            { icon: 'fa-store', name: 'АТБ', date: '16 бер 12:45', amount: -328.5, type: 'negative' },
-                            { icon: 'fa-wifi', name: 'Поповнення телефону', date: '15 бер 09:20', amount: -100, type: 'negative' }
-                        ]
-                    }]
-                };
+                currentUser = createDemoUser();
             }
             cards = currentUser.cards;
             return true;
@@ -149,7 +120,41 @@ document.addEventListener('DOMContentLoaded', () => {
         return false;
     }
 
-    // ========== ДОПОМІЖНІ ФУНКЦІЇ ==========
+    function createDemoUser() {
+        return {
+            name: 'Іван Іваненко',
+            email: 'demo@mail.com',
+            phone: '+380 67 123 45 67',
+            cards: [{
+                id: 'card1',
+                number: '5375 41•• •••• 1234',
+                holder: 'ІВАН ІВАНЕНКО',
+                expiry: '09/25',
+                balance: 15240.75,
+                transactions: [
+                    { id: 't1', icon: 'fa-briefcase', name: 'Зарплата', date: new Date(2025, 2, 14, 18, 2), amount: 22500, type: 'positive' },
+                    { id: 't2', icon: 'fa-store', name: 'АТБ', date: new Date(2025, 2, 16, 12, 45), amount: -328.5, type: 'negative' },
+                    { id: 't3', icon: 'fa-wifi', name: 'Поповнення телефону', date: new Date(2025, 2, 15, 9, 20), amount: -100, type: 'negative' },
+                    { id: 't4', icon: 'fa-gas-pump', name: 'АЗК WOG', date: new Date(2025, 2, 17, 15, 30), amount: -850, type: 'negative' },
+                    { id: 't5', icon: 'fa-utensils', name: 'Ресторан', date: new Date(2025, 2, 18, 20, 0), amount: -450, type: 'negative' }
+                ]
+            }, {
+                id: 'card2',
+                number: '5168 75•• •••• 9876',
+                holder: 'ІВАН ІВАНЕНКО',
+                expiry: '12/26',
+                balance: 5000.00,
+                transactions: [
+                    { id: 't6', icon: 'fa-shopping-cart', name: 'Rozetka', date: new Date(2025, 2, 10, 14, 0), amount: -1250, type: 'negative' }
+                ]
+            }],
+            loans: [
+                { id: 'auto', name: 'Автокредит', balance: 125000, total: 250000, rate: 12 }
+            ]
+        };
+    }
+
+    // ========== UI ФУНКЦІЇ ==========
     function showInfoModal(title, message) {
         modalTitle.innerText = title;
         modalBody.innerHTML = `<p style="color:white;">${message}</p>`;
@@ -158,13 +163,13 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('infoOkBtn').addEventListener('click', () => modal.classList.remove('show'), { once: true });
     }
 
-    function showModal(title, body, showConfirm = true, confirmCallback = null) {
+    function showModal(title, body, showConfirm = true, confirmCallback = null, showCancel = true) {
         modalTitle.innerText = title;
         modalBody.innerHTML = body;
         modalFooter.innerHTML = '';
         if (showConfirm) {
             const confirmBtn = document.createElement('button');
-            confirmBtn.innerText = language === 'uk' ? 'Підтвердити' : (language === 'en' ? 'Confirm' : 'Potwierdź');
+            confirmBtn.innerText = 'Підтвердити';
             confirmBtn.className = 'modal-btn-primary';
             confirmBtn.addEventListener('click', () => {
                 if (confirmCallback) confirmCallback();
@@ -172,22 +177,44 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             modalFooter.appendChild(confirmBtn);
         }
-        const cancelBtn = document.createElement('button');
-        cancelBtn.innerText = language === 'uk' ? 'Скасувати' : (language === 'en' ? 'Cancel' : 'Anuluj');
-        cancelBtn.className = 'modal-btn-secondary';
-        cancelBtn.addEventListener('click', () => modal.classList.remove('show'));
-        modalFooter.appendChild(cancelBtn);
+        if (showCancel) {
+            const cancelBtn = document.createElement('button');
+            cancelBtn.innerText = 'Скасувати';
+            cancelBtn.className = 'modal-btn-secondary';
+            cancelBtn.addEventListener('click', () => modal.classList.remove('show'));
+            modalFooter.appendChild(cancelBtn);
+        }
         modal.classList.add('show');
     }
-
-    modalClose.addEventListener('click', () => modal.classList.remove('show'));
-    window.addEventListener('click', e => { if (e.target === modal) modal.classList.remove('show'); });
 
     function formatBalance(amount) {
         return amount.toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$& ') + ' ₴';
     }
 
-    // Оновлення UI картки та селектора
+    function formatDate(date) {
+        if (!(date instanceof Date)) date = new Date(date);
+        const months = ['січ', 'лют', 'бер', 'кві', 'тра', 'чер', 'лип', 'сер', 'вер', 'жов', 'лис', 'гру'];
+        return `${date.getDate()} ${months[date.getMonth()]} ${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+    }
+
+    function calculateMonthlyStats() {
+        const now = new Date();
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+        let income = 0, expense = 0;
+        
+        cards[activeCardIndex]?.transactions?.forEach(t => {
+            const txDate = new Date(t.date);
+            if (txDate.getMonth() === currentMonth && txDate.getFullYear() === currentYear) {
+                if (t.amount > 0) income += t.amount;
+                else expense += Math.abs(t.amount);
+            }
+        });
+        
+        document.getElementById('monthlySpending').innerText = formatBalance(expense);
+        document.getElementById('monthlyIncome').innerText = formatBalance(income);
+    }
+
     function updateCardUI() {
         if (!cards.length) return;
         const card = cards[activeCardIndex];
@@ -204,41 +231,45 @@ document.addEventListener('DOMContentLoaded', () => {
             if (idx === activeCardIndex) option.selected = true;
             cardSelector.appendChild(option);
         });
-        if (document.getElementById('page-history').classList.contains('active')) {
-            renderHistory();
-        }
-        // Зберігаємо налаштування (activeCardIndex може змінитись)
+        
+        calculateMonthlyStats();
+        renderHistory();
         saveUISettings();
     }
 
-    // Додавання транзакції
     function addTransaction(type, amount, description) {
         const card = cards[activeCardIndex];
         if (!card.transactions) card.transactions = [];
-        const date = new Date();
-        const formattedDate = `${date.getDate()} ${date.toLocaleString('uk', { month: 'short' })} ${date.getHours()}:${date.getMinutes().toString().padStart(2,'0')}`;
-        card.transactions.unshift({
-            icon: type === 'income' ? 'fa-briefcase' : 'fa-shopping-cart',
+        const transaction = {
+            id: Date.now().toString(),
+            icon: amount > 0 ? 'fa-briefcase' : 'fa-shopping-cart',
             name: description,
-            date: formattedDate,
+            date: new Date(),
             amount: amount,
             type: amount > 0 ? 'positive' : 'negative'
-        });
+        };
+        card.transactions.unshift(transaction);
         card.balance += amount;
         updateCardUI();
-        if (document.getElementById('page-history').classList.contains('active')) renderHistory();
-        // Зберігаємо зміни в localStorage
         updateUserInStorage();
     }
 
     function renderHistory() {
         const list = document.getElementById('historyList');
         const card = cards[activeCardIndex];
-        const transactions = card.transactions || [];
+        let transactions = card.transactions || [];
+        
+        if (currentFilter !== 'all') {
+            transactions = transactions.filter(t => 
+                currentFilter === 'income' ? t.amount > 0 : t.amount < 0
+            );
+        }
+        
         if (transactions.length === 0) {
-            list.innerHTML = '<p style="color:white; text-align:center;">Немає операцій</p>';
+            list.innerHTML = '<div style="text-align:center;padding:40px;color:#8a9fb0;">Немає операцій</div>';
             return;
         }
+        
         let html = '<ul class="transactions-list">';
         transactions.forEach(t => {
             html += `
@@ -246,7 +277,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <i class="fas ${t.icon}"></i>
                     <div class="trans-desc">
                         <span class="trans-name">${t.name}</span>
-                        <span class="trans-date">${t.date}</span>
+                        <span class="trans-date">${formatDate(t.date)}</span>
                     </div>
                     <span class="trans-amount ${t.type}">${t.amount > 0 ? '+' : ''}${t.amount.toFixed(2)} ₴</span>
                 </li>
@@ -256,323 +287,542 @@ document.addEventListener('DOMContentLoaded', () => {
         list.innerHTML = html;
     }
 
-    cardSelector.addEventListener('change', (e) => {
-        activeCardIndex = parseInt(e.target.value);
-        updateCardUI();
-        saveUISettings();
-    });
-
-    // ========== АВТОРИЗАЦІЯ ==========
-    function showAuthTab(tab) {
-        loginTab.classList.toggle('active', tab === 'login');
-        registerTab.classList.toggle('active', tab === 'register');
-        loginForm.classList.toggle('active', tab === 'login');
-        registerForm.classList.toggle('active', tab === 'register');
+    function applySkin() {
+        const appMainEl = document.getElementById('app-main');
+        skins.forEach(s => appMainEl.classList.remove(`card-skin-${s}`));
+        appMainEl.classList.add(`card-skin-${skin}`);
     }
-    loginTab.addEventListener('click', () => showAuthTab('login'));
-    registerTab.addEventListener('click', () => showAuthTab('register'));
-    switchToRegister.addEventListener('click', () => showAuthTab('register'));
-    switchToLogin.addEventListener('click', () => showAuthTab('login'));
 
-    // Реєстрація
-    registerBtn.addEventListener('click', () => {
-        const name = document.getElementById('reg-name').value.trim();
-        const email = document.getElementById('reg-email').value.trim();
-        const pass = document.getElementById('reg-password').value.trim();
-        if (!name || !email || !pass) {
-            showInfoModal('Помилка', 'Заповніть всі поля');
-            return;
-        }
-        // Валідація email
-        if (!isValidEmail(email)) {
-            showInfoModal('Помилка', 'Введіть коректну email-адресу');
-            return;
-        }
-        let users = getUsers();
-        if (users.find(u => u.email === email)) {
-            showInfoModal('Помилка', 'Користувач вже існує');
-            return;
-        }
-        const newCard = {
-            number: '5375 41•• •••• 1234',
-            holder: name.toUpperCase(),
-            expiry: '09/25',
-            balance: 15240.75,
-            transactions: [
-                { icon: 'fa-briefcase', name: 'Зарплата', date: '14 бер 18:02', amount: 22500, type: 'positive' },
-                { icon: 'fa-store', name: 'АТБ', date: '16 бер 12:45', amount: -328.5, type: 'negative' },
-                { icon: 'fa-wifi', name: 'Поповнення телефону', date: '15 бер 09:20', amount: -100, type: 'negative' }
-            ]
+    function applyLanguage() {
+        // Спрощена реалізація для основних елементів
+        const elements = {
+            'appName': 'monobank'
         };
-        const newUser = { name, email, password: pass, cards: [newCard] };
-        users.push(newUser);
-        saveUsers(users);
-        showInfoModal('Успіх', 'Реєстрація успішна, увійдіть');
-        showAuthTab('login');
-    });
+    }
 
-    // Вхід
-    loginBtn.addEventListener('click', () => {
-        const email = document.getElementById('login-email').value.trim();
-        const pass = document.getElementById('login-password').value.trim();
-        let users = getUsers();
-        if (email === '' || pass === '') {
-            showInfoModal('Помилка', 'Введіть email та пароль');
-            return;
-        }
-        // Перевірка формату email (крім демо-логіну)
-        if (email !== 'demo@mail.com' && !isValidEmail(email)) {
-            showInfoModal('Помилка', 'Введіть коректну email-адресу');
-            return;
-        }
-        if (email === 'demo@mail.com' && pass === '123456') {
-            // Завантажити demo з localStorage або створити
-            const savedDemo = localStorage.getItem('monoDemoUser');
-            if (savedDemo) {
-                currentUser = JSON.parse(savedDemo);
-            } else {
-                currentUser = {
-                    name: 'Іван Іваненко',
-                    email: 'demo@mail.com',
-                    cards: [{
-                        number: '5375 41•• •••• 1234',
-                        holder: 'ІВАН ІВАНЕНКО',
-                        expiry: '09/25',
-                        balance: 15240.75,
-                        transactions: [
-                            { icon: 'fa-briefcase', name: 'Зарплата', date: '14 бер 18:02', amount: 22500, type: 'positive' },
-                            { icon: 'fa-store', name: 'АТБ', date: '16 бер 12:45', amount: -328.5, type: 'negative' },
-                            { icon: 'fa-wifi', name: 'Поповнення телефону', date: '15 бер 09:20', amount: -100, type: 'negative' }
-                        ]
-                    }]
-                };
-            }
-        } else {
-            const user = users.find(u => u.email === email && u.password === pass);
-            if (!user) {
-                showInfoModal('Помилка', 'Невірні дані');
-                return;
-            }
-            currentUser = user;
-        }
-        cards = currentUser.cards;
-        // activeCardIndex може бути завантажений з UISettings, але переконаємось, що він в межах
-        if (activeCardIndex >= cards.length) activeCardIndex = 0;
-        updateCardUI();
-        authScreen.classList.remove('active');
-        appMain.classList.add('active');
-        showPage('home');
-        applyLanguage();
-        applySkin();
-        // Зберегти сесію
-        saveSession(currentUser.email);
-    });
-
-    // Вихід
-    document.getElementById('logoutBtn').addEventListener('click', () => {
-        appMain.classList.remove('active');
-        authScreen.classList.add('active');
-        showAuthTab('login');
-        saveSession(null); // видалити сесію
-    });
-
-    // Навігація
-    const pages = { home: 'page-home', history: 'page-history', services: 'page-services', settings: 'page-settings' };
     function showPage(pageId) {
+        const pages = { home: 'page-home', history: 'page-history', services: 'page-services', settings: 'page-settings' };
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
         document.getElementById(pages[pageId]).classList.add('active');
         document.querySelectorAll('.nav-item').forEach(item => {
             item.classList.toggle('active', item.dataset.page === pageId);
         });
         if (pageId === 'history') renderHistory();
+        if (pageId === 'home') calculateMonthlyStats();
     }
+
+    // ========== ОБРОБНИКИ ПОДІЙ ==========
+    function showAuthTab(tab) {
+        loginTab.classList.toggle('active', tab === 'login');
+        registerTab.classList.toggle('active', tab === 'register');
+        loginForm.classList.toggle('active', tab === 'login');
+        registerForm.classList.toggle('active', tab === 'register');
+    }
+
+    // Реєстрація
+    registerBtn.addEventListener('click', () => {
+        const name = document.getElementById('reg-name').value.trim();
+        const email = document.getElementById('reg-email').value.trim();
+        const phone = document.getElementById('reg-phone').value.trim();
+        const password = document.getElementById('reg-password').value.trim();
+        const confirm = document.getElementById('reg-confirm').value.trim();
+        
+        if (!name || !email || !phone || !password) {
+            showInfoModal('Помилка', 'Заповніть всі поля');
+            return;
+        }
+        if (!isValidEmail(email)) {
+            showInfoModal('Помилка', 'Введіть коректний email');
+            return;
+        }
+        if (!isValidPhone(phone)) {
+            showInfoModal('Помилка', 'Введіть коректний номер телефону');
+            return;
+        }
+        if (password !== confirm) {
+            showInfoModal('Помилка', 'Паролі не співпадають');
+            return;
+        }
+        
+        let users = getUsers();
+        if (users.find(u => u.email === email)) {
+            showInfoModal('Помилка', 'Користувач вже існує');
+            return;
+        }
+        
+        const newCard = {
+            id: Date.now().toString(),
+            number: `5375 41•• •••• ${Math.floor(Math.random() * 10000)}`,
+            holder: name.toUpperCase(),
+            expiry: '09/26',
+            balance: 1000.00,
+            transactions: []
+        };
+        
+        const newUser = { 
+            name, email, phone, password, 
+            cards: [newCard],
+            loans: []
+        };
+        users.push(newUser);
+        saveUsers(users);
+        showInfoModal('Успіх', 'Реєстрація успішна! Тепер увійдіть');
+        showAuthTab('login');
+    });
+
+    // Вхід
+    loginBtn.addEventListener('click', () => {
+        const email = document.getElementById('login-email').value.trim();
+        const password = document.getElementById('login-password').value.trim();
+        
+        if (!email || !password) {
+            showInfoModal('Помилка', 'Введіть email та пароль');
+            return;
+        }
+        
+        if (email === 'demo@mail.com' && password === '123456') {
+            const savedDemo = localStorage.getItem('monoDemoUser');
+            if (savedDemo) {
+                currentUser = JSON.parse(savedDemo);
+            } else {
+                currentUser = createDemoUser();
+            }
+        } else {
+            const users = getUsers();
+            const user = users.find(u => u.email === email && u.password === password);
+            if (!user) {
+                showInfoModal('Помилка', 'Невірний email або пароль');
+                return;
+            }
+            currentUser = user;
+        }
+        
+        cards = currentUser.cards;
+        if (activeCardIndex >= cards.length) activeCardIndex = 0;
+        
+        // Оновлення профілю
+        if (profileNameSpan) profileNameSpan.innerText = currentUser.name;
+        if (profileEmailSpan) profileEmailSpan.innerText = currentUser.email;
+        
+        updateCardUI();
+        authScreen.classList.remove('active');
+        appMain.classList.add('active');
+        showPage('home');
+        saveSession(currentUser.email);
+    });
+
+    // Вихід
+    function logout() {
+        appMain.classList.remove('active');
+        authScreen.classList.add('active');
+        showAuthTab('login');
+        saveSession(null);
+        document.getElementById('login-email').value = '';
+        document.getElementById('login-password').value = '';
+    }
+    
+    document.getElementById('logoutBtn').addEventListener('click', logout);
+    const logoutBtnSide = document.getElementById('logoutBtnSide');
+    if (logoutBtnSide) logoutBtnSide.addEventListener('click', logout);
+
+    // Навігація
     document.querySelectorAll('.nav-item').forEach(item => {
         item.addEventListener('click', () => showPage(item.dataset.page));
     });
 
-    document.getElementById('toggleBalanceEye').addEventListener('click', () => {
+    // Фільтр історії
+    if (historyFilterType) {
+        historyFilterType.addEventListener('change', (e) => {
+            currentFilter = e.target.value;
+            renderHistory();
+        });
+    }
+
+    // Перемикання видимості балансу
+    document.getElementById('toggleBalanceEye')?.addEventListener('click', () => {
         isBalanceHidden = !isBalanceHidden;
         document.getElementById('app-main').classList.toggle('balance-hidden', isBalanceHidden);
-        document.getElementById('eyeIcon').className = isBalanceHidden ? 'fas fa-eye-slash' : 'fas fa-eye';
+        const eyeIcon = document.getElementById('eyeIcon');
+        if (eyeIcon) eyeIcon.className = isBalanceHidden ? 'fas fa-eye-slash' : 'fas fa-eye';
         saveUISettings();
     });
 
-    function applySkin() {
-        document.getElementById('app-main').classList.remove(...skins.map(s => `card-skin-${s}`));
-        document.getElementById('app-main').classList.add(`card-skin-${skin}`);
-    }
-
-    function applyLanguage() {
-        document.querySelectorAll('[data-i18n]').forEach(el => {
-            const key = el.getAttribute('data-i18n');
-            if (translations[language] && translations[language][key]) {
-                el.innerText = translations[language][key];
-            }
-        });
-    }
-    function changeLanguage(lang) {
-        language = lang;
-        applyLanguage();
+    // Селектор карток
+    cardSelector.addEventListener('change', (e) => {
+        activeCardIndex = parseInt(e.target.value);
+        updateCardUI();
         saveUISettings();
-    }
+    });
 
-    // Обробка дій
+    // ========== ДІЇ ==========
     document.addEventListener('click', e => {
         const btn = e.target.closest('[data-action]');
         if (!btn) return;
         const action = btn.dataset.action;
-        if (action === 'goto-history') { showPage('history'); return; }
-        if (action === 'add-card') {
-            showModal('Додати картку', `
-                <p style="color:white;">Введіть дані нової картки</p>
-                <input class="modal-input" id="newCardNumber" placeholder="Номер картки" value="5355 1234 5678 9012">
-                <input class="modal-input" id="newCardHolder" placeholder="Власник" value="ПЕТРО ПЕТРЕНКО">
-                <input class="modal-input" id="newCardExpiry" placeholder="Термін" value="12/26">
-                <input class="modal-input" id="newCardBalance" type="number" placeholder="Баланс" value="5000.00">
-            `, true, () => {
-                const newCard = {
-                    number: document.getElementById('newCardNumber').value,
-                    holder: document.getElementById('newCardHolder').value.toUpperCase(),
-                    expiry: document.getElementById('newCardExpiry').value,
-                    balance: parseFloat(document.getElementById('newCardBalance').value) || 0,
-                    transactions: []
-                };
-                cards.push(newCard);
-                activeCardIndex = cards.length - 1;
-                updateCardUI();
-                updateUserInStorage(); // зберегти зміни
-                showInfoModal('Успіх', 'Картку додано!');
-            });
-            return;
-        }
+        
         switch (action) {
+            case 'goto-history':
+                showPage('history');
+                break;
+            case 'add-card':
+                showModal('Додати картку', `
+                    <p style="color:white;margin-bottom:10px;">Введіть дані нової картки</p>
+                    <input class="modal-input" id="newCardNumber" placeholder="Номер картки" value="5355 1234 5678 9012">
+                    <input class="modal-input" id="newCardHolder" placeholder="Власник" value="${currentUser?.name?.toUpperCase() || 'НОВИЙ КОРИСТУВАЧ'}">
+                    <input class="modal-input" id="newCardExpiry" placeholder="Термін" value="12/28">
+                    <input class="modal-input" id="newCardBalance" type="number" placeholder="Баланс" value="0">
+                `, true, () => {
+                    const newCard = {
+                        id: Date.now().toString(),
+                        number: document.getElementById('newCardNumber').value,
+                        holder: document.getElementById('newCardHolder').value.toUpperCase(),
+                        expiry: document.getElementById('newCardExpiry').value,
+                        balance: parseFloat(document.getElementById('newCardBalance').value) || 0,
+                        transactions: []
+                    };
+                    cards.push(newCard);
+                    activeCardIndex = cards.length - 1;
+                    updateCardUI();
+                    updateUserInStorage();
+                    showInfoModal('Успіх', 'Картку додано!');
+                });
+                break;
             case 'view-balance':
-                showModal('Баланс', `<p style="font-size:28px; color:white;">${formatBalance(cards[activeCardIndex].balance)}</p>`);
+                showModal('Баланс', `<p style="font-size:28px;text-align:center;">${formatBalance(cards[activeCardIndex].balance)}</p>`);
                 break;
             case 'print-balance':
-                showModal('Друк', `<p style="color:white;">Баланс надіслано на принтер</p><p style="color:white;">${formatBalance(cards[activeCardIndex].balance)}</p>`, true);
+                showModal('Друк виписки', `<p>Виписка за поточний місяць надіслана на email: ${currentUser?.email}</p>`);
+                break;
+            case 'export-csv':
+                showInfoModal('Експорт', 'Виписку експортовано у CSV формат');
                 break;
             case 'withdraw':
-                showModal('Зняття готівки', '<input class="modal-input" id="withdrawSum" placeholder="Сума" type="number" value="1000">', true, () => {
-                    let s = parseFloat(document.getElementById('withdrawSum').value) || 0;
-                    if (s > cards[activeCardIndex].balance) {
+                showModal('Зняття готівки', '<input class="modal-input" id="withdrawSum" placeholder="Сума" type="number" step="0.01">', true, () => {
+                    const sum = parseFloat(document.getElementById('withdrawSum')?.value);
+                    if (isNaN(sum) || sum <= 0) {
+                        showInfoModal('Помилка', 'Введіть коректну суму');
+                        return;
+                    }
+                    if (sum > cards[activeCardIndex].balance) {
                         showInfoModal('Помилка', 'Недостатньо коштів');
                         return;
                     }
-                    addTransaction('expense', -s, 'Зняття готівки');
-                    showInfoModal('Успіх', `Знято ${s} грн`);
+                    addTransaction('expense', -sum, 'Зняття готівки');
+                    showInfoModal('Успіх', `Знято ${sum.toFixed(2)} грн`);
                 });
                 break;
             case 'topup-card':
-                showModal('Поповнення карти', '<input class="modal-input" id="topupSum" placeholder="Сума" type="number" value="2000">', true, () => {
-                    let s = parseFloat(document.getElementById('topupSum').value) || 0;
-                    addTransaction('income', s, 'Поповнення карти');
-                    showInfoModal('Успіх', `Карту поповнено на ${s} грн`);
+                showModal('Поповнення карти', '<input class="modal-input" id="topupSum" placeholder="Сума" type="number" step="0.01">', true, () => {
+                    const sum = parseFloat(document.getElementById('topupSum')?.value);
+                    if (isNaN(sum) || sum <= 0) {
+                        showInfoModal('Помилка', 'Введіть коректну суму');
+                        return;
+                    }
+                    addTransaction('income', sum, 'Поповнення карти');
+                    showInfoModal('Успіх', `Карту поповнено на ${sum.toFixed(2)} грн`);
                 });
                 break;
             case 'transfer':
-                showModal('Переказ', '<input class="modal-input" placeholder="Отримувач"><input class="modal-input" id="transferSum" placeholder="Сума" type="number" value="500">', true, () => {
-                    let s = parseFloat(document.getElementById('transferSum')?.value) || 0;
-                    if (s > cards[activeCardIndex].balance) {
+                showModal('Переказ коштів', `
+                    <input class="modal-input" placeholder="Отримувач (IBAN або телефон)">
+                    <input class="modal-input" id="transferSum" placeholder="Сума" type="number" step="0.01">
+                    <input class="modal-input" placeholder="Коментар (необов'язково)">
+                `, true, () => {
+                    const sum = parseFloat(document.getElementById('transferSum')?.value);
+                    if (isNaN(sum) || sum <= 0) {
+                        showInfoModal('Помилка', 'Введіть коректну суму');
+                        return;
+                    }
+                    if (sum > cards[activeCardIndex].balance) {
                         showInfoModal('Помилка', 'Недостатньо коштів');
                         return;
                     }
-                    addTransaction('expense', -s, 'Переказ коштів');
-                    showInfoModal('Успіх', 'Переказ виконано');
+                    addTransaction('expense', -sum, 'Переказ коштів');
+                    showInfoModal('Успіх', 'Переказ виконано успішно');
                 });
                 break;
             case 'topup-phone':
-                showModal('Поповнення телефону', '<input class="modal-input" value="+380 67 123 45 67"><input class="modal-input" id="phoneSum" placeholder="Сума" type="number" value="100">', true, () => {
-                    let s = parseFloat(document.getElementById('phoneSum')?.value) || 0;
-                    if (s > cards[activeCardIndex].balance) {
+                showModal('Поповнення телефону', `
+                    <input class="modal-input" id="phoneNumber" placeholder="Номер телефону" value="+380">
+                    <input class="modal-input" id="phoneSum" placeholder="Сума" type="number" step="0.01">
+                `, true, () => {
+                    const sum = parseFloat(document.getElementById('phoneSum')?.value);
+                    const phone = document.getElementById('phoneNumber')?.value;
+                    if (!phone || phone.length < 10) {
+                        showInfoModal('Помилка', 'Введіть коректний номер телефону');
+                        return;
+                    }
+                    if (isNaN(sum) || sum <= 0) {
+                        showInfoModal('Помилка', 'Введіть коректну суму');
+                        return;
+                    }
+                    if (sum > cards[activeCardIndex].balance) {
                         showInfoModal('Помилка', 'Недостатньо коштів');
                         return;
                     }
-                    addTransaction('expense', -s, 'Поповнення телефону');
-                    showInfoModal('Успіх', 'Телефон поповнено');
+                    addTransaction('expense', -sum, `Поповнення телефону ${phone}`);
+                    showInfoModal('Успіх', `Телефон ${phone} поповнено на ${sum.toFixed(2)} грн`);
                 });
                 break;
             case 'pay-utilities':
-                showModal('Комуналка', '<select class="modal-input"><option>Київенерго</option><option>Газ</option></select><input class="modal-input" id="utilSum" value="1250.00" type="number">', true, () => {
-                    let s = parseFloat(document.getElementById('utilSum')?.value) || 0;
-                    if (s > cards[activeCardIndex].balance) {
+                showModal('Комунальні платежі', `
+                    <select class="modal-select" id="utilityType">
+                        <option value="Електроенергія">Електроенергія</option>
+                        <option value="Газ">Газ</option>
+                        <option value="Вода">Вода</option>
+                        <option value="Опалення">Опалення</option>
+                    </select>
+                    <input class="modal-input" id="utilitySum" placeholder="Сума" type="number" step="0.01">
+                    <input class="modal-input" placeholder="Особовий рахунок">
+                `, true, () => {
+                    const sum = parseFloat(document.getElementById('utilitySum')?.value);
+                    const type = document.getElementById('utilityType')?.value;
+                    if (isNaN(sum) || sum <= 0) {
+                        showInfoModal('Помилка', 'Введіть коректну суму');
+                        return;
+                    }
+                    if (sum > cards[activeCardIndex].balance) {
                         showInfoModal('Помилка', 'Недостатньо коштів');
                         return;
                     }
-                    addTransaction('expense', -s, 'Комунальні платежі');
-                    showInfoModal('Успіх', 'Оплачено');
+                    addTransaction('expense', -sum, `Оплата ${type}`);
+                    showInfoModal('Успіх', `Оплачено ${type} на суму ${sum.toFixed(2)} грн`);
                 });
                 break;
-            case 'change-limit':
-                showModal('Ліміт', '<p style="color:white;">Поточний ліміт 50000</p><input class="modal-input" placeholder="Новий ліміт" value="75000">', true, () => showInfoModal('Успіх', 'Ліміт змінено (демо)'));
+            case 'currency-exchange':
+                showModal('Курс валют', `
+                    <div style="text-align:center;">
+                        <p>USD/UAH: 41.50</p>
+                        <p>EUR/UAH: 45.20</p>
+                        <p>PLN/UAH: 10.80</p>
+                        <p>Оновлено: ${new Date().toLocaleString()}</p>
+                    </div>
+                `, false);
+                break;
+            case 'qr-payment':
+                showModal('QR-платіж', '<p style="text-align:center;">Скануйте QR-код для оплати</p><div style="display:flex;justify-content:center;"><i class="fas fa-qrcode" style="font-size:150px;color:#8ac53e;"></i></div>', false);
                 break;
             case 'change-pin':
-                showModal('Зміна ПІН', '<input class="modal-input" type="password" placeholder="Новий ПІН" maxlength="4">', true, () => showInfoModal('Успіх', 'ПІН змінено'));
+                showModal('Зміна ПІН-коду', `
+                    <input class="modal-input" type="password" placeholder="Поточний ПІН" maxlength="4">
+                    <input class="modal-input" type="password" placeholder="Новий ПІН" maxlength="4">
+                    <input class="modal-input" type="password" placeholder="Підтвердження" maxlength="4">
+                `, true, () => showInfoModal('Успіх', 'ПІН-код успішно змінено'));
+                break;
+            case 'change-password':
+                showModal('Зміна паролю', `
+                    <input class="modal-input" type="password" placeholder="Поточний пароль">
+                    <input class="modal-input" type="password" placeholder="Новий пароль">
+                    <input class="modal-input" type="password" placeholder="Підтвердження">
+                `, true, () => showInfoModal('Успіх', 'Пароль змінено'));
+                break;
+            case 'biometric':
+                showInfoModal('Біометрія', 'Функція в розробці');
                 break;
             case 'block-card':
-                showModal('Блокування', '<p style="color:white;">Ви впевнені?</p>', true, () => showInfoModal('Успіх', 'Карту заблоковано (демо)'));
+                showModal('Блокування карти', '<p>Ви впевнені, що хочете заблокувати карту?</p><p class="text-danger" style="color:#ff7b72;">Після блокування відновлення може зайняти до 5 днів</p>', true, () => showInfoModal('Карта заблокована', 'Карту заблоковано. Для розблокування зверніться в підтримку'));
+                break;
+            case 'change-limit':
+                showModal('Зміна лімітів', `
+                    <p>Поточний денний ліміт: 50 000 ₴</p>
+                    <input class="modal-input" id="newLimit" placeholder="Новий ліміт" type="number" value="50000">
+                `, true, () => showInfoModal('Ліміт змінено', `Ліміт змінено на ${document.getElementById('newLimit')?.value} ₴`));
+                break;
+            case 'card-settings':
+                showModal('Налаштування карти', `
+                    <p>Безконтактна оплата: Увімкнено</p>
+                    <p>Інтернет-платежі: Увімкнено</p>
+                    <p>Зняття за кордоном: Увімкнено</p>
+                `, false);
                 break;
             case 'change-card-skin':
-                let skinButtons = skins.map(s => `<button class="skin-option" data-skin="${s}">${s.charAt(0).toUpperCase() + s.slice(1)}</button>`).join('');
-                showModal('Скін карти', skinButtons, false);
+                const skinButtons = skins.map(s => `<button class="skin-option" data-skin="${s}">${s.charAt(0).toUpperCase() + s.slice(1)}</button>`).join('');
+                showModal('Скін карти', `<div style="display:flex;flex-wrap:wrap;gap:8px;">${skinButtons}</div>`, false, null, false);
                 document.querySelectorAll('.skin-option').forEach(b => {
-                    b.addEventListener('click', () => { skin = b.dataset.skin; applySkin(); saveUISettings(); modal.classList.remove('show'); });
+                    b.addEventListener('click', () => {
+                        skin = b.dataset.skin;
+                        applySkin();
+                        saveUISettings();
+                        modal.classList.remove('show');
+                    });
                 });
-                return;
+                break;
             case 'change-language':
-                showModal('Мова', `
-                    <button class="lang-option" data-lang="uk">Українська</button>
-                    <button class="lang-option" data-lang="en">English</button>
-                    <button class="lang-option" data-lang="pl">Polski</button>
-                `, false);
+                showModal('Мова інтерфейсу', `
+                    <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                        <button class="lang-option" data-lang="uk">Українська</button>
+                        <button class="lang-option" data-lang="en">English</button>
+                        <button class="lang-option" data-lang="pl">Polski</button>
+                    </div>
+                `, false, null, false);
                 document.querySelectorAll('.lang-option').forEach(b => {
-                    b.addEventListener('click', () => { changeLanguage(b.dataset.lang); modal.classList.remove('show'); });
+                    b.addEventListener('click', () => {
+                        language = b.dataset.lang;
+                        applyLanguage();
+                        saveUISettings();
+                        modal.classList.remove('show');
+                    });
                 });
-                return;
+                break;
             case 'toggle-balance':
                 document.getElementById('toggleBalanceEye').click();
-                showModal('Баланс', isBalanceHidden ? 'Приховано' : 'Відображається', false);
                 break;
-            case 'cash-collection':
-                showModal('Режим інкасації', '<p style="color:white;">Активовано режим інкасації (демо)</p>', true, () => showInfoModal('Інкасація', 'Режим активовано'));
+            case 'profile-settings':
+                showModal('Особисті дані', `
+                    <p><strong>Ім'я:</strong> ${currentUser?.name}</p>
+                    <p><strong>Email:</strong> ${currentUser?.email}</p>
+                    <p><strong>Телефон:</strong> ${currentUser?.phone || 'Не вказано'}</p>
+                    <button class="modal-btn-primary" style="margin-top:15px;" id="editProfileBtn">Редагувати</button>
+                `, false);
+                break;
+            case 'security':
+                showModal('Безпека', `
+                    <p>✅ Двофакторна аутентифікація: Вимкнено</p>
+                    <p>✅ Останній вхід: ${new Date().toLocaleString()}</p>
+                    <p>✅ Активні сесії: 1</p>
+                `, false);
+                break;
+            case 'limits':
+                showModal('Ліміти', `
+                    <p>Денний ліміт: 50 000 ₴</p>
+                    <p>Місячний ліміт: 500 000 ₴</p>
+                    <p>Ліміт на зняття: 20 000 ₴/день</p>
+                `, false);
+                break;
+            case 'about':
+                showModal('Про додаток', `
+                    <p>Monobank v2.0.0</p>
+                    <p>Сучасний банківський застосунок з усіма необхідними функціями</p>
+                    <p>© 2025 Monobank. Всі права захищено.</p>
+                `, false);
+                break;
+            case 'support':
+                showModal('Підтримка', `
+                    <p>📞 Гаряча лінія: 0 800 123 456</p>
+                    <p>📧 Email: support@monobank.ua</p>
+                    <p>💬 Чат-підтримка: 24/7</p>
+                `, false);
                 break;
             case 'pay-creator':
-                showModal('Оплата Creator', '<p style="color:white;">Курс "JavaScript" — 12500 грн</p>', true, () => {
+                showModal('Оплата навчання Creator', `
+                    <p>Курс "JavaScript Комплексний"</p>
+                    <p>Вартість: 12 500 ₴</p>
+                `, true, () => {
                     if (12500 > cards[activeCardIndex].balance) {
                         showInfoModal('Помилка', 'Недостатньо коштів');
                         return;
                     }
                     addTransaction('expense', -12500, 'Оплата навчання Creator');
-                    showInfoModal('Оплата', 'Навчання оплачено');
+                    showInfoModal('Успіх', 'Оплата пройшла успішно! Доступ до курсу відкрито.');
                 });
                 break;
-            default: showModal('Дія', `<p style="color:white;">${action} (демо)</p>`);
+            case 'cash-collection':
+                showModal('Режим інкасації', '<p>Для бізнесу: Замовлення інкасації</p><input class="modal-input" placeholder="Сума для інкасації"><input class="modal-input" placeholder="Адреса">', true, () => showInfoModal('Інкасація', 'Заявку прийнято, очікуйте інкасатора'));
+                break;
+            case 'internet-pay':
+                showModal('Оплата інтернету', `
+                    <select class="modal-select"><option>Київстар</option><option>Vodafone</option><option>Укртелеком</option></select>
+                    <input class="modal-input" placeholder="Особовий рахунок">
+                    <input class="modal-input" id="internetSum" placeholder="Сума" type="number">
+                `, true, () => {
+                    const sum = parseFloat(document.getElementById('internetSum')?.value);
+                    if (sum > 0 && sum <= cards[activeCardIndex].balance) {
+                        addTransaction('expense', -sum, 'Оплата інтернету');
+                        showInfoModal('Успіх', 'Інтернет оплачено');
+                    } else showInfoModal('Помилка', 'Недостатньо коштів або некоректна сума');
+                });
+                break;
+            case 'tax-pay':
+                showModal('Сплата податків', '<input class="modal-input" placeholder="ІПН"><input class="modal-input" placeholder="Сума" type="number">', true, () => showInfoModal('Податки', 'Податки сплачено'));
+                break;
+            case 'donation':
+                showModal('Благодійність', `
+                    <select class="modal-select">
+                        <option>Повернись живим</option>
+                        <option>Фонд Сергія Притули</option>
+                        <option>Армія SOS</option>
+                    </select>
+                    <input class="modal-input" placeholder="Сума" type="number">
+                `, true, () => showInfoModal('Дякуємо!', 'Ваш внесок важливий для перемоги'));
+                break;
+            case 'exchange-rates':
+                showModal('Курси валют', `
+                    <div style="text-align:center;">
+                        <p>🇺🇸 USD: 41.50 / 42.10</p>
+                        <p>🇪🇺 EUR: 45.20 / 46.00</p>
+                        <p>🇵🇱 PLN: 10.80 / 11.20</p>
+                        <p>🇬🇧 GBP: 52.50 / 53.30</p>
+                    </div>
+                `, false);
+                break;
+            default:
+                showModal('Інформація', `<p>Дія "${action}" в демо-режимі</p>`);
         }
     });
 
-    document.getElementById('filterHistory').addEventListener('click', () => showModal('Фільтр', '<p style="color:white;">Фільтр (демо)</p>', true));
-    document.getElementById('addCardBtn').addEventListener('click', () => {
-        document.querySelector('[data-action="add-card"]').click();
+    // Закриття модалки
+    modalClose.addEventListener('click', () => modal.classList.remove('show'));
+    window.addEventListener('click', e => { if (e.target === modal) modal.classList.remove('show'); });
+    
+    // Таби авторизації
+    loginTab.addEventListener('click', () => showAuthTab('login'));
+    registerTab.addEventListener('click', () => showAuthTab('register'));
+    switchToRegister.addEventListener('click', () => showAuthTab('register'));
+    switchToLogin.addEventListener('click', () => showAuthTab('login'));
+    document.getElementById('addCardBtn')?.addEventListener('click', () => {
+        document.querySelector('[data-action="add-card"]')?.click();
     });
-    document.getElementById('userProfile').addEventListener('click', () => showModal('Профіль', `<p style="color:white;">${currentUser?.name || 'Користувач'}</p><p style="color:white;">${currentUser?.email}</p>`, false));
+    document.getElementById('userProfile')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const dropdown = document.getElementById('profileDropdown');
+        dropdown.classList.toggle('active');
+    });
+    document.getElementById('filterHistory')?.addEventListener('click', () => {
+        showModal('Фільтр по даті', `
+            <input type="date" class="modal-input" id="dateFrom">
+            <input type="date" class="modal-input" id="dateTo">
+        `, true, () => {
+            showInfoModal('Фільтр', 'Застосовано фільтр за датою');
+        });
+    });
+    document.getElementById('searchIcon')?.addEventListener('click', () => {
+        showModal('Пошук', '<input class="modal-input" placeholder="Пошук за назвою або сумою">', true, () => {
+            showInfoModal('Пошук', 'Результати пошуку (демо)');
+        });
+    });
+    document.getElementById('notificationIcon')?.addEventListener('click', () => {
+        showModal('Сповіщення', `
+            <div style="max-height:300px;overflow-y:auto;">
+                <p>🔔 Нова операція на картці</p>
+                <p>💳 Зміна курсу валют</p>
+                <p>💰 Надходження зарплати</p>
+            </div>
+        `, false);
+    });
+
+    // Обробка кредитів
+    document.querySelectorAll('.loan-pay-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            showModal('Сплата кредиту', '<input class="modal-input" placeholder="Сума платежу" type="number">', true, () => {
+                showInfoModal('Кредит', 'Платіж прийнято до списання');
+            });
+        });
+    });
 
     // ========== ІНІЦІАЛІЗАЦІЯ ==========
-    // Спочатку завантажуємо налаштування інтерфейсу (скіни, мова, приховування балансу)
     loadUISettings();
-
-    // Спробуємо завантажити сесію
+    
     if (loadSession()) {
-        // Якщо є активна сесія, переходимо в додаток
         cards = currentUser.cards;
         if (activeCardIndex >= cards.length) activeCardIndex = 0;
+        if (profileNameSpan) profileNameSpan.innerText = currentUser.name;
+        if (profileEmailSpan) profileEmailSpan.innerText = currentUser.email;
         updateCardUI();
         authScreen.classList.remove('active');
         appMain.classList.add('active');
         showPage('home');
-        applyLanguage();
         applySkin();
     } else {
-        // Немає сесії – показуємо екран авторизації
         authScreen.classList.add('active');
         appMain.classList.remove('active');
         showAuthTab('login');
